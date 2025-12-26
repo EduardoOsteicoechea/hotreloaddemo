@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+	  <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Revit_All_Main_Versions_API_x64" Version="2025.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="hotreloaddemo.addin">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command=":: 1. Define dynamic paths using %25AppData%25&#xA;SET &quot;Revit2025=%25AppData%25\Autodesk\Revit\Addins\2025&quot;&#xA;SET &quot;Revit2026=%25AppData%25\Autodesk\Revit\Addins\2026&quot;&#xA;&#xA;:: 2. Create the main Addin folders if they don't exist&#xA;if not exist &quot;%25Revit2025%25&quot; mkdir &quot;%25Revit2025%25&quot;&#xA;if not exist &quot;%25Revit2026%25&quot; mkdir &quot;%25Revit2026%25&quot;&#xA;&#xA;:: 3. Copy files to Revit 2025&#xA;:: Copies the .addin manifest to the main folder&#xA;xcopy &quot;$(ProjectDir)*.addin&quot; &quot;%25Revit2025%25\&quot; /Y /I&#xA;:: Copies the DLLs and JSONs to a subfolder to keep things clean&#xA;xcopy &quot;$(TargetDir)*.dll&quot; &quot;%25Revit2025%25\hotreloaddemo\&quot; /Y /I&#xA;xcopy &quot;$(TargetDir)*.json&quot; &quot;%25Revit2025%25\hotreloaddemo\&quot; /Y /I&#xA;&#xA;:: 4. Copy files to Revit 2026&#xA;xcopy &quot;$(ProjectDir)*.addin&quot; &quot;%25Revit2026%25\&quot; /Y /I&#xA;xcopy &quot;$(TargetDir)*.dll&quot; &quot;%25Revit2026%25\hotreloaddemo\&quot; /Y /I&#xA;xcopy &quot;$(TargetDir)*.json&quot; &quot;%25Revit2026%25\hotreloaddemo\&quot; /Y /I" />
+  </Target>
+
+</Project>

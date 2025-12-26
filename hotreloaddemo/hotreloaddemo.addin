@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+	<AddIn Type="Application">
+		<Name>hotreloaddemo</Name>
+		<Assembly>hotreloaddemo\hotreloaddemo.dll</Assembly>
+		<AddInId>E82A15A8-66A6-4B05-AAE4-B114EF9AAB14</AddInId>
+		<FullClassName>hotreloaddemo.App</FullClassName>
+		<VendorId>Eduardoos</VendorId>
+		<VendorDescription>Eduardoos, www.eduardoos.com</VendorDescription>
+	</AddIn>
+</RevitAddIns>
