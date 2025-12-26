@@ -1,12 +1,26 @@
-﻿using System.Windows.Controls;
+﻿using Autodesk.Revit.UI;
+using System.Windows.Controls;
 
 namespace hotreloaddemo;
 
-public partial class MainPage : Page
+public partial class MainPage : Page, IDockablePaneProvider
 {
 	public MainPage()
 	{
 		InitializeComponent();
-		GlobalVariables.HotswapContainer = this.DynamicUiContainer;
+
+		ApplicationManagerService.Instance().HotswapContainer = this.DynamicUiContainer;
+	}
+
+	public void SetupDockablePane(DockablePaneProviderData data)
+	{
+		data.VisibleByDefault = true;
+
+		data.InitialState = new DockablePaneState()
+		{
+			DockPosition = DockPosition.Tabbed
+		};
+
+		data.FrameworkElement = this;
 	}
 }

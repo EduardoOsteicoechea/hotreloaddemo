@@ -4,49 +4,44 @@ using Autodesk.Revit.UI;
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
-using System.Windows;
-using System.Xml.Linq;
-using UIFramework;
 
 namespace hotreloaddemo;
 
-public class MainDockablePaneCreator : IFrameworkElementCreator
-{
-	public FrameworkElement CreateFrameworkElement()
-	{
-		return new MainPage();
-	}
-}
+//public class MainDockablePaneCreator : IFrameworkElementCreator
+//{
+//	public FrameworkElement CreateFrameworkElement()
+//	{
+//		return new MainPage();
+//	}
+//}
 
-public class MainDockablePaneProvider : Autodesk.Revit.UI.IDockablePaneProvider
-{
-	//public MainDockablePaneProvider()
-	//{
-	//	SetupDockablePane(new DockablePaneProviderData());
-	//}
+//public class MainDockablePaneProvider : Autodesk.Revit.UI.IDockablePaneProvider
+//{
+//	//public MainDockablePaneProvider()
+//	//{
+//	//	SetupDockablePane(new DockablePaneProviderData());
+//	//}
 
-	public void SetupDockablePane(DockablePaneProviderData data)
-	{
-		data.VisibleByDefault = true;
+//	public void SetupDockablePane(DockablePaneProviderData data)
+//	{
+//		data.VisibleByDefault = true;
 
-		data.InitialState = new DockablePaneState()
-		{
-			DockPosition = DockPosition.Tabbed
-		};
+//		data.InitialState = new DockablePaneState()
+//		{
+//			DockPosition = DockPosition.Tabbed
+//		};
 
-		data.FrameworkElementCreator = new MainDockablePaneCreator();
-	}
-}
+//		data.FrameworkElementCreator = new MainDockablePaneCreator();
+//	}
+//}
 
 public class App : IExternalApplication
 {
 	public Result OnStartup(UIControlledApplication application)
 	{
-		string applicationName = MethodBase.GetCurrentMethod().DeclaringType.Namespace;
-
 		string configDirectoryPath = Path.Combine(
 			Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-			applicationName
+			MethodBase.GetCurrentMethod().DeclaringType.Namespace
 		);
 
 		string configFilePath = Path.Combine(
@@ -54,17 +49,20 @@ public class App : IExternalApplication
 			"ApplicationConfiguration.json"
 		);
 
-		ApplicationManager.LoadApplicationConfiguration(applicationName, configDirectoryPath, configFilePath);
+		ApplicationManager manager = ApplicationManagerService.Instance();
 
-		ApplicationManager.StoreAssemblyLocation();
+		manager.LoadApplicationConfiguration(configDirectoryPath, configFilePath);
 
-		ApplicationManager.GenerateMainDockablePane(application, new MainDockablePaneProvider());
+		manager.StoreAssemblyLocation();
 
-		ApplicationManager.CreateRibbonTab(application);
+		//manager.GenerateMainDockablePane(application, new MainDockablePaneProvider());
+		manager.GenerateMainDockablePane(application, new MainPage());
 
-		ApplicationManager.GenerateApplicationRibbonPanel(application);
+		manager.CreateRibbonTab(application);
 
-		ApplicationManager.GenerateApplicationRibbonTabButtons();
+		manager.GenerateApplicationRibbonPanel(application);
+
+		manager.GenerateApplicationRibbonTabButtons();
 
 		return Result.Succeeded;
 	}
@@ -83,118 +81,110 @@ public class LaunchMainDockablePane : IExternalCommand
 {
 	public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
 	{
-		ApplicationManager.ShowMainDockablePane(commandData);
+		var applicationManager = ApplicationManagerService.Instance();
 
-		// --- HOT RELOAD UI LOGIC ---
-		try
-		{
-			// 1. Define what we are looking for
-			string targetDllName = "SayHello.dll";
-			string commandClassName = "SayHelloView";
-			string viewClassName = $"SayHello.{commandClassName}"; // The UserControl class name in your other project
-
-			string sourcePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), ApplicationManager.ApplicationName, targetDllName);
-
-			if (!File.Exists(sourcePath))
-			{
-				TaskDialog.Show("Error", "DLL not found: " + sourcePath);
-				return Result.Failed;
-			}
-
-			byte[] assemblyBytes = File.ReadAllBytes(sourcePath);
-			Assembly loadedAssembly = Assembly.Load(assemblyBytes);
-
-			Type? viewType = loadedAssembly
-				.GetTypes()
-				.FirstOrDefault(
-					t =>
-					t.FullName.EndsWith(commandClassName)
-						||
-					t.Name == commandClassName
-				);
-
-			if (viewType == null)
-			{
-				TaskDialog.Show("Error", $"Could not find a UserControl named '{viewClassName}' inside {targetDllName}");
-				return Result.Failed;
-			}
-
-			if (ApplicationManager.HotswapContainer != null)
-			{
-				ApplicationManager.HotswapContainer.Dispatcher.Invoke(() =>
-				{
-					// Create the new UI element
-					object newView = Activator.CreateInstance(viewType);
-
-					// Inject it into our Shell
-					ApplicationManager.HotswapContainer.Content = newView;
-				});
-			}
-		}
-		catch (Exception ex)
-		{
-			TaskDialog.Show("Hot Reload Error", ex.ToString());
-			return Result.Failed;
-		}
+		applicationManager.ReloadApplication(commandData);
 
 		return Result.Succeeded;
 	}
 }
 
 
+
 public class ApplicationResourcesModel
 {
-	public string? ApplicationConfigurationResourcesDirectoryPath { get; set; }
 	public List<ApplicationButtonModel> ApplicationButtons { get; set; } = new List<ApplicationButtonModel>();
+}
+
+public class ApplicationCommandModel
+{
+	public string? HostDllName { get; set; }
+	public string? Namespace { get; set; }
+	public string? CommandName { get; set; }
 }
 
 public class ApplicationButtonModel
 {
-	public string? CommandName { get; set; }
-	public string? FullClassName { get; set; }
+	public ApplicationCommandModel? Command { get; set; }
+	public string? Namespace { get; set; }
+	public string? ClassName { get; set; }
 	public string? TooltipText { get; set; }
 }
 
-public static class ApplicationManager
+public static class ApplicationManagerService
 {
-	private static string _assemblyFullPath { get; set; }
-	public static string AssemblyFullPath { get { return _assemblyFullPath; } }
-	private static string _assemblyDirectoryPath { get; set; }
-	public static string AssemblyDirectoryPath { get { return _assemblyDirectoryPath; } }
-	public static void StoreAssemblyLocation()
+	private static ApplicationManager _instance { get; set; }
+	public static ApplicationManager Instance(string applicationName = "", string mainCommandName = "Launch") 
+	{
+		if (string.IsNullOrEmpty(applicationName)) 
+		{
+			applicationName = MethodBase.GetCurrentMethod().DeclaringType.Namespace;
+		}
+
+		if (_instance is null) 
+		{
+			_instance = new ApplicationManager(applicationName, mainCommandName);
+		}
+
+		return _instance;
+	}
+}
+
+public class ApplicationManager
+{
+	public string _mainNamespace { get; set; }
+	public string MainNamespace { get { return _mainNamespace; } }
+	private string _applicationName { get; set; }
+	public string ApplicationName { get { return _applicationName; } }
+	private string _mainCommandUIName { get; set; }
+	public string MainCommandUIName { get { return _mainCommandUIName; } }
+	public ApplicationManager(string applicationName, string mainCommandName)
+	{
+		_mainNamespace = MethodBase.GetCurrentMethod().DeclaringType.Namespace;
+		_applicationName = applicationName;
+		_mainCommandUIName = mainCommandName;
+	}
+
+
+
+	private string _assemblyFullPath { get; set; }
+	public string AssemblyFullPath { get { return _assemblyFullPath; } }
+	private string _assemblyDirectoryPath { get; set; }
+	public string AssemblyDirectoryPath { get { return _assemblyDirectoryPath; } }
+	public void StoreAssemblyLocation()
 	{
 		_assemblyFullPath = Assembly.GetExecutingAssembly().Location;
 		_assemblyDirectoryPath = Path.GetDirectoryName(_assemblyFullPath);
 	}
 
-	private static DockablePaneId _dockablePaneId { get; } = new DockablePaneId(System.Guid.NewGuid());
-	public static DockablePaneId DockablePaneId { get { return _dockablePaneId; } }
-	private static DockablePane? _mainDockablePane { get; set; }
-	public static DockablePane? MainDockablePane { get { return _mainDockablePane; } }
-	public static void GenerateMainDockablePane(UIControlledApplication application, IDockablePaneProvider paneProvider)
+	private DockablePaneId _dockablePaneId { get; } = new DockablePaneId(System.Guid.NewGuid());
+	public DockablePaneId DockablePaneId { get { return _dockablePaneId; } }
+	private DockablePane? _mainDockablePane { get; set; }
+	public DockablePane? MainDockablePane { get { return _mainDockablePane; } }
+	public void GenerateMainDockablePane(UIControlledApplication application, IDockablePaneProvider paneProvider)
 	{
 		application.RegisterDockablePane(
-			ApplicationManager.DockablePaneId,
-			ApplicationManager.ApplicationName,
+			DockablePaneId,
+			ApplicationName,
 			paneProvider
 		);
 	}
 
-	public static void StoreMainDockablePane(ExternalCommandData commandData)
+	public void StoreMainDockablePane(ExternalCommandData commandData)
 	{
-		_mainDockablePane = commandData.Application.GetDockablePane(ApplicationManager.DockablePaneId);
+		_mainDockablePane = commandData.Application.GetDockablePane(DockablePaneId);
 	}
 
-	public static void ShowMainDockablePane(ExternalCommandData commandData)
+	public void ShowMainDockablePane(ExternalCommandData commandData)
 	{
 		StoreMainDockablePane(commandData);
 
 		MainDockablePane?.Show();
 	}
 
-	private static ApplicationResourcesModel _applicationResourcesModel { get; set; } = new ApplicationResourcesModel();
-	public static ApplicationResourcesModel ApplicationResourcesModel { get; } = new ApplicationResourcesModel();
-	public static void LoadApplicationConfiguration(string applicationName, string configDirectoryPath, string configFilePath)
+	private ApplicationResourcesModel _applicationResourcesModel { get; set; } = new ApplicationResourcesModel();
+	public ApplicationResourcesModel ApplicationResources { get { return _applicationResourcesModel; } }
+	public void LoadApplicationConfiguration(string configDirectoryPath, string configFilePath)
 	{
 		if (!Directory.Exists(configDirectoryPath))
 		{
@@ -225,17 +215,17 @@ public static class ApplicationManager
 		_applicationResourcesModel = arm;
 	}
 
-	public static void GenerateApplicationRibbonTabButtons()
+	public void GenerateApplicationRibbonTabButtons()
 	{
-		for (int i = 0; i < ApplicationResourcesModel.ApplicationButtons.Count; i++)
+		for (int i = 0; i < ApplicationResources.ApplicationButtons.Count; i++)
 		{
-			var btnModel = ApplicationResourcesModel.ApplicationButtons[i];
+			var btnModel = ApplicationResources.ApplicationButtons[i];
 
 			PushButtonData buttonData = new PushButtonData(
-				ApplicationManager.ApplicationName,
-				btnModel.FullClassName,
-				ApplicationManager.AssemblyFullPath,
-				$"{ApplicationManager.MainNamespace}.{btnModel.CommandName}");
+				ApplicationName,
+				btnModel.ClassName,
+				AssemblyFullPath,
+				$"{btnModel.Namespace}.{btnModel.Command.CommandName}");
 
 			buttonData.ToolTip = btnModel.TooltipText;
 
@@ -244,14 +234,14 @@ public static class ApplicationManager
 	}
 
 
-	public static void CreateRibbonTab(UIControlledApplication application)
+	public void CreateRibbonTab(UIControlledApplication application)
 	{
 		application.CreateRibbonTab(ApplicationName);
 	}
 
-	private static RibbonPanel _applicationRibbonPanel { get; set; }
-	public static RibbonPanel ApplicationRibbonPanel { get { return _applicationRibbonPanel; } }
-	public static void GenerateApplicationRibbonPanel(UIControlledApplication application)
+	private RibbonPanel _applicationRibbonPanel { get; set; }
+	public RibbonPanel ApplicationRibbonPanel { get { return _applicationRibbonPanel; } }
+	public void GenerateApplicationRibbonPanel(UIControlledApplication application)
 	{
 		_applicationRibbonPanel = application.CreateRibbonPanel(
 			ApplicationName,
@@ -260,14 +250,67 @@ public static class ApplicationManager
 	}
 
 
-	public static string MainNamespace { get; } = MethodBase.GetCurrentMethod().DeclaringType.Namespace;
-	public static string MainCommandInternalName { get; } = "LaunchMainDockablePane";
-	public static string ApplicationName { get; } = "hotreloaddemo";
-	public static string MainCommandUIName { get; } = "Launch";
-	public static string MainCommandToolTipText { get; } = $"Launch The {ApplicationName} Revit API Assistance toolkit";
+	public System.Windows.Controls.ContentControl? HotswapContainer { get; set; }
+	public void ReloadApplication(ExternalCommandData commandData)
+	{
+		ShowMainDockablePane(commandData);
 
+		int commandsCount = ApplicationResources.ApplicationButtons.Count;
 
-	public static System.Windows.Controls.ContentControl? HotswapContainer { get; set; }
+		for (int i = 0; i < commandsCount; i++)
+		{
+			var cmd = ApplicationResources.ApplicationButtons[i].Command;
+
+			ReloadUI(cmd.HostDllName, cmd.Namespace, cmd.CommandName);
+		}
+	}
+
+	public void ReloadUI(string uiHostDllName, string uiClassNameFullNamespace, string uiClassName)
+	{
+		try
+		{
+			string viewClassName = $"{uiClassNameFullNamespace}.{uiClassName}";
+
+			string sourcePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), ApplicationName, uiHostDllName);
+
+			if (!File.Exists(sourcePath))
+			{
+				throw new Exception($"DLL not found: {sourcePath}");
+			}
+
+			byte[] assemblyBytes = File.ReadAllBytes(sourcePath);
+
+			Assembly loadedAssembly = Assembly.Load(assemblyBytes);
+
+			Type? viewType = loadedAssembly
+				.GetTypes()
+				.FirstOrDefault(
+					t =>
+					t.FullName.EndsWith(uiClassName)
+						||
+					t.Name == uiClassName
+				);
+
+			if (viewType == null)
+			{
+				throw new Exception($"Could not find a UserControl named '{viewClassName}' inside {uiHostDllName}");
+			}
+
+			if (HotswapContainer != null)
+			{
+				HotswapContainer.Dispatcher.Invoke(() =>
+				{
+					object newView = Activator.CreateInstance(viewType);
+
+					HotswapContainer.Content = newView;
+				});
+			}
+		}
+		catch (Exception ex)
+		{
+			throw new Exception($"Hot Reload Error {ex.Message}");
+		}
+	}
 }
 
 //<?xml version="1.0" encoding="utf-8"?>
